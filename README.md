@@ -6,8 +6,8 @@ React + FastAPI + LiteLLM + SQLite. A multi-turn chatbot backed by a pool of API
 
 | Tier | URL |
 |---|---|
-| Frontend | _not deployed yet — add after verifying_ |
-| Backend | _not deployed yet — add after verifying_ |
+| Frontend | https://lytr-ai.vercel.app |
+| Backend | https://lytr-ai-production.up.railway.app (try `/health`) |
 | Demo video | _add link_ |
 
 **Deploying (what this repo is set up for):**

@@ -28,11 +28,11 @@ def test_unknown_session_returns_404(client):
 
 
 def test_multi_turn_sends_history_to_llm(client, provider):
-    chat(client, "s-mt", "My name is Anurag.")
+    chat(client, "s-mt", "My name is Riya.")
     chat(client, "s-mt", "What is my name?")
     sent = provider.calls[-1]["messages"]
     assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
-    assert sent[1]["content"] == "My name is Anurag."
+    assert sent[1]["content"] == "My name is Riya."
     assert sent[-1]["content"] == "What is my name?"
 
 
