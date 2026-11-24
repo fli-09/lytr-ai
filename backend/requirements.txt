@@ -1,0 +1,6 @@
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+litellm==1.110.3
+# litellm's cache-hit path imports these at runtime (verified with 1.110.3)
+orjson==3.13.0
+soundfile==0.14.0

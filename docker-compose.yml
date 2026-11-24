@@ -1,0 +1,32 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_API_KEYS: ${LLM_API_KEYS:?Set LLM_API_KEYS in .env (copy .env.example)}
+      LLM_MODEL: ${LLM_MODEL:-gemini/gemini-3.5-flash-lite}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ENABLE_FAILURE_SIMULATION: ${ENABLE_FAILURE_SIMULATION:-true}
+      DEFAULT_SYSTEM_PROMPT: ${DEFAULT_SYSTEM_PROMPT:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-86400}
+    volumes:
+      - lyftr-data:/data
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Browser-facing backend URL (the browser calls it directly).
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  lyftr-data:
