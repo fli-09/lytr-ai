@@ -123,3 +123,25 @@ def test_parser_targets():
     assert parse_simulation_header("*=429", keys) == {"key_1": 429, "key_2": 429, "fallback": 429}
     assert parse_simulation_header("keys=500", keys) == {"key_1": 500, "key_2": 500}
     assert parse_simulation_header("fallback=503", keys) == {"fallback": 503}
+
+
+def test_thinking_only_reply_is_not_cached(make_client, provider):
+    """A bad fallback reply must not be cached and replayed on every retry."""
+    c = make_client(fallback=True)
+    provider.fail_keys["key_1"] = down()
+    provider.fail_keys["key_2"] = down()
+    provider.fallback_raw_reply = "<think>cut off mid-thought"
+    assert chat(c, "s-f12", "same question").status_code == 503
+    provider.fallback_raw_reply = "A real answer."  # model behaves again
+    r = chat(c, "s-f13", "same question").json()
+    assert r["reply"] == "A real answer."
+    assert r["metadata"]["resolution_source"] == "LIVE_INFERENCE" and r["metadata"]["key_id"] == "fallback"
+
+
+def test_successful_fallback_reply_is_not_cached_either(make_client, provider):
+    c = make_client(fallback=True)
+    provider.fail_keys["key_1"] = down()
+    provider.fail_keys["key_2"] = down()
+    chat(c, "s-f14", "ask twice")
+    again = chat(c, "s-f15", "ask twice").json()["metadata"]
+    assert again["resolution_source"] == "LIVE_INFERENCE" and again["key_id"] == "fallback"

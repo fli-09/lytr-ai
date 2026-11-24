@@ -294,9 +294,10 @@ class LiteLLMGateway:
                 message["content"] = message["content"] + fb.no_think_suffix
                 break
 
-        kwargs: dict[str, Any] = {"caching": True}
-        if state.simulation:
-            kwargs["cache"] = {"no-cache": True}
+        # The fallback never reads or writes the cache: LiteLLM stores a response before we
+        # can validate it, so a thinking-only reply would otherwise be served back from the
+        # cache on every retry, even after the model recovers.
+        kwargs: dict[str, Any] = {"caching": False, "cache": {"no-cache": True, "no-store": True}}
         try:
             response = await litellm.acompletion(
                 model=fb.model,
@@ -312,15 +313,12 @@ class LiteLLMGateway:
             logger.warning("fallback failed: error=%s status=%s", type(exc).__name__, _status_of(exc))
             raise AllProvidersUnavailable() from None
 
-        hidden = getattr(response, "_hidden_params", {}) or {}
         raw = response.choices[0].message.content if response.choices else ""
         reply = strip_think(raw or "")
         if not reply:
             logger.warning("fallback returned no usable reply")
             raise AllProvidersUnavailable()
         input_tokens, output_tokens = _usage(response)
-        if hidden.get("cache_hit") is True:
-            return GatewayResult(reply, "LLM_CACHE", fb.model, input_tokens, output_tokens, None, 0)
         return GatewayResult(reply, "LIVE_INFERENCE", fb.model, input_tokens, output_tokens, FALLBACK_TARGET, failed_pool_attempts)
 
 
