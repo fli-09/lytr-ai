@@ -2,7 +2,8 @@ const FAILOVER_OPTIONS = [
   { value: "", label: "Off (normal request)" },
   { value: "key_1=429", label: "key_1 → 429 (rate limited)" },
   { value: "key_1=500", label: "key_1 → 500 (server error)" },
-  { value: "*=429", label: "All keys → 429" },
+  { value: "keys=429", label: "All pool keys → 429 (self-hosted fallback answers)" },
+  { value: "*=429", label: "Everything → 429 (503 expected)" },
 ];
 
 export default function SessionPanel({ sessionId, systemPrompt, onSystemPrompt, simulateFailure, onSimulateFailure }) {

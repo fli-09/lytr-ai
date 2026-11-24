@@ -29,9 +29,10 @@ class FakeProvider(CustomLogger):
         super().__init__()
         self.calls: list[dict[str, Any]] = []
         self.fail_keys: dict[str, Exception] = {}  # simulate *real* provider errors per key
+        self.fallback_raw_reply: str | None = None  # override what the self-hosted fallback returns
 
     async def async_pre_call_deployment_hook(self, kwargs: dict[str, Any], call_type: Any):
-        key_id = (kwargs.get("model_info") or {}).get("id")
+        key_id = (kwargs.get("model_info") or {}).get("id") or ("fallback" if kwargs.get("api_base") else None)
         messages = kwargs.get("messages") or []
         self.calls.append({"key_id": key_id, "messages": [dict(m) for m in messages]})
         if isinstance(kwargs.get("mock_response"), Exception):
@@ -42,6 +43,8 @@ class FakeProvider(CustomLogger):
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         turn = sum(1 for m in messages if m["role"] == "user")
         reply = f"Reply #{turn} via {key_id}: {last_user}"
+        if key_id == "fallback" and self.fallback_raw_reply is not None:
+            reply = self.fallback_raw_reply
         prompt_tokens = sum(len(str(m["content"]).split()) + 4 for m in messages)
         kwargs["mock_response"] = {
             "id": "chatcmpl-test",
@@ -63,7 +66,7 @@ class FakeProvider(CustomLogger):
 
 
 def make_settings(tmp_path, *, keys: int = 2, simulation: bool = True, models: list[str] | None = None,
-                  api_keys: list[str] | None = None) -> Settings:
+                  api_keys: list[str] | None = None, fallback: bool = False) -> Settings:
     return Settings(
         api_keys=api_keys or [f"sk-test-secret-{i}" for i in range(1, keys + 1)],
         database_url=f"sqlite:///{tmp_path}/app.db",
@@ -73,6 +76,10 @@ def make_settings(tmp_path, *, keys: int = 2, simulation: bool = True, models: l
         default_system_prompt="You are a test assistant.",
         llm_timeout_seconds=10,
         cache_ttl_seconds=3600,
+        fallback_model="openai/qwen/qwen3-14b" if fallback else "",
+        fallback_api_base="https://fallback.invalid/v1" if fallback else "",
+        fallback_api_key="sk-test-secret-fallback" if fallback else "",
+        fallback_timeout_seconds=120,
     )
 
 

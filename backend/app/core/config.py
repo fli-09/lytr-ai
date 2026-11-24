@@ -52,6 +52,14 @@ class Settings:
     default_system_prompt: str
     llm_timeout_seconds: float
     cache_ttl_seconds: int
+    fallback_model: str = ""
+    fallback_api_base: str = ""
+    fallback_api_key: str = field(default="", repr=False)
+    fallback_timeout_seconds: float = 120.0
+
+    @property
+    def fallback_enabled(self) -> bool:
+        return bool(self.fallback_model and self.fallback_api_base and self.fallback_api_key)
 
     @property
     def key_ids(self) -> list[str]:
@@ -80,4 +88,8 @@ def load_settings() -> Settings:
         default_system_prompt=os.getenv("DEFAULT_SYSTEM_PROMPT") or DEFAULT_SYSTEM_PROMPT,
         llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "30")),
         cache_ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "86400")),
+        fallback_model=(os.getenv("FALLBACK_LLM_MODEL") or "").strip(),
+        fallback_api_base=(os.getenv("FALLBACK_LLM_API_BASE") or "").strip(),
+        fallback_api_key=(os.getenv("FALLBACK_LLM_API_KEY") or "").strip(),
+        fallback_timeout_seconds=float(os.getenv("FALLBACK_LLM_TIMEOUT_SECONDS") or "120"),
     )

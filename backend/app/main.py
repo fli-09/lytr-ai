@@ -16,14 +16,16 @@ from app.core.config import Settings, load_settings
 from app.core.logging import configure_logging
 from app.db.database import Database
 from app.services.chat_service import ChatService
-from app.services.litellm_gateway import LiteLLMGateway, split_key
+from app.services.litellm_gateway import FallbackConfig, LiteLLMGateway, split_key
 
 logger = logging.getLogger("lyftr")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
-    configure_logging(settings.api_keys + [split_key(k)[1] for k in settings.api_keys])
+    configure_logging(
+        settings.api_keys + [split_key(k)[1] for k in settings.api_keys] + [settings.fallback_api_key]
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -34,14 +36,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             models=settings.llm_models,
             timeout_seconds=settings.llm_timeout_seconds,
             cache_ttl_seconds=settings.cache_ttl_seconds,
+            fallback=FallbackConfig(
+                model=settings.fallback_model,
+                api_base=settings.fallback_api_base,
+                api_key=settings.fallback_api_key,
+                timeout_seconds=settings.fallback_timeout_seconds,
+            ) if settings.fallback_enabled else None,
         )
         app.state.settings = settings
         app.state.db = db
         app.state.gateway = gateway
         app.state.chat_service = ChatService(db, gateway, settings.default_system_prompt)
         logger.info(
-            "ready: keys=%d models=%s db=%s simulation=%s",
-            len(gateway.key_ids), ",".join(settings.llm_models), settings.database_path, settings.enable_failure_simulation,
+            "ready: keys=%d models=%s fallback=%s db=%s simulation=%s",
+            len(gateway.key_ids), ",".join(settings.llm_models),
+            settings.fallback_model if settings.fallback_enabled else "off", settings.database_path, settings.enable_failure_simulation,
         )
         yield
 

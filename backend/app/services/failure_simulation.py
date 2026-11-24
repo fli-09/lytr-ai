@@ -1,12 +1,18 @@
 """Parsing for the X-Simulate-Failure request header.
 
-Format: comma-separated `<key_id>=<status>` pairs; `*` means every key.
-Example: "key_1=429,key_2=500" or "*=429".
+Format: comma-separated `<target>=<status>` pairs.
+Targets:
+  key_1, key_2, ...  one pool key
+  *                  every pool key AND the self-hosted fallback (assignment: `*=429` -> 503)
+  keys               every pool key only, so the self-hosted fallback can be tested
+  fallback           the self-hosted fallback only
+Example: "key_1=429,key_2=500", "*=429", "keys=429".
 """
 
 from __future__ import annotations
 
 SUPPORTED_STATUSES = frozenset({429, 500, 502, 503})
+FALLBACK_TARGET = "fallback"
 
 
 class InvalidSimulationHeader(ValueError):
@@ -35,10 +41,12 @@ def parse_simulation_header(raw: str | None, key_ids: list[str]) -> dict[str, in
             raise InvalidSimulationHeader(
                 f"unsupported status {status} in X-Simulate-Failure; use one of 429, 500, 502, 503"
             )
-        if target == "*":
+        if target in ("*", "keys"):
             for key_id in key_ids:
                 plan[key_id] = status
-        elif target in key_ids:
+            if target == "*":
+                plan[FALLBACK_TARGET] = status
+        elif target == FALLBACK_TARGET or target in key_ids:
             plan[target] = status
         else:
             raise InvalidSimulationHeader(f"unknown key id '{target}' in X-Simulate-Failure")

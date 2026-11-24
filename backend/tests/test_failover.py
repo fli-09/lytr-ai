@@ -91,7 +91,7 @@ def test_keys_never_leak(client, caplog):
         ("", {}),
         ("key_1=429", {"key_1": 429}),
         ("key_1=429, key_2=500", {"key_1": 429, "key_2": 500}),
-        ("*=503", {"key_1": 503, "key_2": 503}),
+        ("*=503", {"key_1": 503, "key_2": 503, "fallback": 503}),
     ],
 )
 def test_parse_simulation_header(raw, expected):

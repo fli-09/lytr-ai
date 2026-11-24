@@ -37,6 +37,8 @@ from litellm import Router
 from litellm.caching.caching import Cache
 from litellm.integrations.custom_logger import CustomLogger
 
+from app.services.failure_simulation import FALLBACK_TARGET
+
 logger = logging.getLogger("lyftr.gateway")
 
 
@@ -53,6 +55,33 @@ def split_key(raw: str) -> tuple[str | None, str]:
 
 def provider_of(model: str) -> str:
     return model.split("/", 1)[0] if "/" in model else model
+
+
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks; an unclosed block means no usable answer."""
+    cleaned = _THINK_BLOCK.sub("", text or "")
+    if re.search(r"<think>", cleaned, re.IGNORECASE):
+        return ""
+    return cleaned.strip()
+
+
+@dataclass(frozen=True)
+class FallbackConfig:
+    """Self-hosted OpenAI-compatible model used only after the whole key pool failed."""
+
+    model: str
+    api_base: str
+    api_key: str = field(repr=False)
+    timeout_seconds: float = 120.0
+    no_think_suffix: str = " /no_think"
+    extra_headers: dict[str, str] = field(default_factory=lambda: {"ngrok-skip-browser-warning": "true"})
+
+
+class _PoolFailed(Exception):
+    pass
 
 
 class AllProvidersUnavailable(Exception):
@@ -126,7 +155,9 @@ class LiteLLMGateway:
         models: list[str],
         timeout_seconds: float,
         cache_ttl_seconds: int,
+        fallback: FallbackConfig | None = None,
     ) -> None:
+        self.fallback = fallback
         if len(api_keys) < 2:
             raise ValueError("at least two API keys are required")
         if not models:
@@ -199,6 +230,17 @@ class LiteLLMGateway:
 
     async def complete(self, messages: list[dict[str, str]], simulation: dict[str, int] | None = None) -> GatewayResult:
         state = _RequestState(simulation=dict(simulation or {}))
+        try:
+            result = await self._complete_with_pool(messages, state)
+        except _PoolFailed:
+            result = await self._complete_with_fallback(messages, state)  # raises AllProvidersUnavailable
+        logger.info(
+            "served_by=%s source=%s model=%s fallback_attempts=%s",
+            result.key_id or "cache", result.resolution_source, result.model, result.fallback_attempts,
+        )
+        return result
+
+    async def _complete_with_pool(self, messages: list[dict[str, str]], state: _RequestState) -> GatewayResult:
         token = _REQUEST_STATE.set(state)
         kwargs: dict[str, Any] = {"caching": True}
         if state.simulation:
@@ -212,7 +254,7 @@ class LiteLLMGateway:
                 "all keys failed: attempts=%s final_error=%s status=%s",
                 state.attempts, type(exc).__name__, _status_of(exc),
             )
-            raise AllProvidersUnavailable() from None
+            raise _PoolFailed() from None
         finally:
             _REQUEST_STATE.reset(token)
 
@@ -221,12 +263,9 @@ class LiteLLMGateway:
         reply = (response.choices[0].message.content or "").strip() if response.choices else ""
         if not reply:
             logger.warning("provider returned an empty reply; attempts=%s", state.attempts)
-            raise AllProvidersUnavailable()
+            raise _PoolFailed()
 
-        usage = getattr(response, "usage", None)
-        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-
+        input_tokens, output_tokens = _usage(response)
         deployment = hidden.get("model_id")
         if deployment not in self.deployments:
             deployment = state.attempts[-1] if state.attempts else self.deployment_ids[0]
@@ -234,12 +273,60 @@ class LiteLLMGateway:
 
         if cache_hit:
             return GatewayResult(reply, "LLM_CACHE", model, input_tokens, output_tokens, None, 0)
-
         # every attempt before the successful one failed (each deployment is tried once)
         fallback_attempts = max(len(state.attempts) - 1, 0)
-        if fallback_attempts:
-            logger.info("answered_by=%s model=%s fallback_attempts=%s", key_id, model, fallback_attempts)
         return GatewayResult(reply, "LIVE_INFERENCE", model, input_tokens, output_tokens, key_id, fallback_attempts)
 
+    async def _complete_with_fallback(self, messages: list[dict[str, str]], state: _RequestState) -> GatewayResult:
+        fb = self.fallback
+        if fb is None:
+            raise AllProvidersUnavailable()
+        failed_pool_attempts = len(state.attempts)
+        simulated = state.simulation.get(FALLBACK_TARGET)
+        if simulated is not None:
+            logger.warning("fallback skipped: simulated HTTP %s (X-Simulate-Failure)", simulated)
+            raise AllProvidersUnavailable()
 
-__all__ = ["AllProvidersUnavailable", "GatewayResult", "LiteLLMGateway"]
+        # Qwen3 is a reasoning model: ask it not to think, on a copy (history keeps the original text).
+        fb_messages = [dict(m) for m in messages]
+        for message in reversed(fb_messages):
+            if message["role"] == "user":
+                message["content"] = message["content"] + fb.no_think_suffix
+                break
+
+        kwargs: dict[str, Any] = {"caching": True}
+        if state.simulation:
+            kwargs["cache"] = {"no-cache": True}
+        try:
+            response = await litellm.acompletion(
+                model=fb.model,
+                messages=fb_messages,
+                api_base=fb.api_base,
+                api_key=fb.api_key,
+                timeout=fb.timeout_seconds,
+                extra_headers=dict(fb.extra_headers),
+                num_retries=0,
+                **kwargs,
+            )
+        except Exception as exc:  # offline laptop, ngrok down, timeout, auth error...
+            logger.warning("fallback failed: error=%s status=%s", type(exc).__name__, _status_of(exc))
+            raise AllProvidersUnavailable() from None
+
+        hidden = getattr(response, "_hidden_params", {}) or {}
+        raw = response.choices[0].message.content if response.choices else ""
+        reply = strip_think(raw or "")
+        if not reply:
+            logger.warning("fallback returned no usable reply")
+            raise AllProvidersUnavailable()
+        input_tokens, output_tokens = _usage(response)
+        if hidden.get("cache_hit") is True:
+            return GatewayResult(reply, "LLM_CACHE", fb.model, input_tokens, output_tokens, None, 0)
+        return GatewayResult(reply, "LIVE_INFERENCE", fb.model, input_tokens, output_tokens, FALLBACK_TARGET, failed_pool_attempts)
+
+
+def _usage(response: Any) -> tuple[int, int]:
+    usage = getattr(response, "usage", None)
+    return int(getattr(usage, "prompt_tokens", 0) or 0), int(getattr(usage, "completion_tokens", 0) or 0)
+
+
+__all__ = ["AllProvidersUnavailable", "FallbackConfig", "GatewayResult", "LiteLLMGateway", "strip_think"]

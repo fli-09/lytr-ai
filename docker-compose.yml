@@ -12,6 +12,11 @@ services:
       DEFAULT_SYSTEM_PROMPT: ${DEFAULT_SYSTEM_PROMPT:-}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-86400}
+      # Optional self-hosted fallback; any empty value disables it
+      FALLBACK_LLM_MODEL: ${FALLBACK_LLM_MODEL:-}
+      FALLBACK_LLM_API_BASE: ${FALLBACK_LLM_API_BASE:-}
+      FALLBACK_LLM_API_KEY: ${FALLBACK_LLM_API_KEY:-}
+      FALLBACK_LLM_TIMEOUT_SECONDS: ${FALLBACK_LLM_TIMEOUT_SECONDS:-120}
     volumes:
       - lyftr-data:/data
     restart: unless-stopped
