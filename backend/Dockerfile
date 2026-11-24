@@ -18,7 +18,6 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /srv
 COPY --chown=app:app app ./app
 USER app
-VOLUME ["/data"]
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=5 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/health', timeout=4)" || exit 1
