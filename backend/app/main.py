@@ -16,14 +16,14 @@ from app.core.config import Settings, load_settings
 from app.core.logging import configure_logging
 from app.db.database import Database
 from app.services.chat_service import ChatService
-from app.services.litellm_gateway import LiteLLMGateway
+from app.services.litellm_gateway import LiteLLMGateway, split_key
 
 logger = logging.getLogger("lyftr")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
-    configure_logging(settings.api_keys)
+    configure_logging(settings.api_keys + [split_key(k)[1] for k in settings.api_keys])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -31,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db.init_schema()
         gateway = LiteLLMGateway(
             api_keys=settings.api_keys,
-            model=settings.llm_model,
+            models=settings.llm_models,
             timeout_seconds=settings.llm_timeout_seconds,
             cache_ttl_seconds=settings.cache_ttl_seconds,
         )
@@ -40,8 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.gateway = gateway
         app.state.chat_service = ChatService(db, gateway, settings.default_system_prompt)
         logger.info(
-            "ready: keys=%d model=%s db=%s simulation=%s",
-            len(gateway.key_ids), settings.llm_model, settings.database_path, settings.enable_failure_simulation,
+            "ready: keys=%d models=%s db=%s simulation=%s",
+            len(gateway.key_ids), ",".join(settings.llm_models), settings.database_path, settings.enable_failure_simulation,
         )
         yield
 

@@ -62,13 +62,14 @@ class FakeProvider(CustomLogger):
         return sum(1 for c in self.calls if c["messages"] and c["messages"][-1]["content"] == text)
 
 
-def make_settings(tmp_path, *, keys: int = 2, simulation: bool = True) -> Settings:
+def make_settings(tmp_path, *, keys: int = 2, simulation: bool = True, models: list[str] | None = None,
+                  api_keys: list[str] | None = None) -> Settings:
     return Settings(
-        api_keys=[f"sk-test-secret-{i}" for i in range(1, keys + 1)],
+        api_keys=api_keys or [f"sk-test-secret-{i}" for i in range(1, keys + 1)],
         database_url=f"sqlite:///{tmp_path}/app.db",
         allowed_origins=["http://localhost:3000"],
         enable_failure_simulation=simulation,
-        llm_model="gemini/gemini-3.5-flash-lite",
+        llm_models=models or ["gemini/gemini-3.5-flash-lite"],
         default_system_prompt="You are a test assistant.",
         llm_timeout_seconds=10,
         cache_ttl_seconds=3600,

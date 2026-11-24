@@ -48,7 +48,7 @@ class Settings:
     database_url: str
     allowed_origins: list[str]
     enable_failure_simulation: bool
-    llm_model: str
+    llm_models: list[str]
     default_system_prompt: str
     llm_timeout_seconds: float
     cache_ttl_seconds: int
@@ -76,7 +76,7 @@ def load_settings() -> Settings:
         database_url=database_url,
         allowed_origins=_csv(os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")),
         enable_failure_simulation=_bool(os.getenv("ENABLE_FAILURE_SIMULATION"), False),
-        llm_model=os.getenv("LLM_MODEL", "gemini/gemini-3.5-flash-lite").strip(),
+        llm_models=_csv(os.getenv("LLM_MODEL")) or ["gemini/gemini-3.5-flash-lite"],
         default_system_prompt=os.getenv("DEFAULT_SYSTEM_PROMPT") or DEFAULT_SYSTEM_PROMPT,
         llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "30")),
         cache_ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "86400")),
